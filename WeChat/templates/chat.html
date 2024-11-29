@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Chat</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+</head>
+<body class="gradient-chat">
+    <div class="chat-container">
+        <div class="sidebar">
+            <h2>Users</h2>
+            <ul id="user-list">
+                {% for user in users %}
+                <li onclick="selectUser('{{ user }}')">{{ user }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="chat-box">
+            <div id="messages"></div>
+            <div class="message-input">
+                <textarea id="message" placeholder="Type a message"></textarea>
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+    <script src="/static/chat.js"></script>
+    <script>
+        const jid = "{{ jid }}";
+        document.addEventListener("DOMContentLoaded", () => setupChat(jid));
+    </script>
+</body>
+</html>
