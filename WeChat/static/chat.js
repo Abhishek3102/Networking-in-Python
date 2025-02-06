@@ -1,75 +1,98 @@
 let socket;
-let selectedUser = null;
-let jid = null;
+let room = "general";
+let isTyping = false;
+let typingTimeout;
 
-function initializeLogin() {
-    jid = getUserJid();
-    if (jid) {
-        setupChat(jid);
+function setupChat(username) {
+  socket = io();
+  socket.emit("join_room", { username: username, room: room });
+
+  socket.on("user_joined", (data) => {
+    const messages = document.getElementById("messages");
+    messages.innerHTML += `<div class="notification">${data.username} joined the room.</div>`;
+  });
+
+  socket.on("user_left", (data) => {
+    const messages = document.getElementById("messages");
+    messages.innerHTML += `<div class="notification">${data.username} left the room.</div>`;
+  });
+
+  socket.on("update_user_list", (data) => {
+    const userList = document.getElementById("user-list");
+    userList.innerHTML = data.users.map((user) => `<li>${user}</li>`).join("");
+  });
+
+  socket.on("receive_message", (data) => {
+    const messages = document.getElementById("messages");
+    const messageClass =
+      data.username === username ? "right-message" : "left-message";
+    messages.innerHTML += `<div class="message ${messageClass}">${data.message}</div>`;
+    messages.scrollTop = messages.scrollHeight;
+  });
+
+  socket.on("receive_file", (data) => {
+    const messages = document.getElementById("messages");
+    const messageClass =
+      data.username === username ? "right-message" : "left-message";
+    messages.innerHTML += `<div class="message ${messageClass}"><a href="${data.file_url}" download>${data.filename}</a></div>`;
+    messages.scrollTop = messages.scrollHeight;
+  });
+
+  socket.on("typing", (data) => {
+    const typingIndicator = document.getElementById("typing-indicator");
+    if (data.isTyping) {
+      typingIndicator.innerHTML = `${data.username} is typing...`;
     } else {
-        alert("Error: JID not found.");
+      typingIndicator.innerHTML = "";
     }
-}
+  });
 
-function getUserJid() {
-    return "user1";
-}
-
-function setupChat(jid) {
-    socket = io();
-    socket.emit("join_room", { jid });
-
-    socket.on("receive_message", data => {
-        if (data.recipient === jid || data.sender === jid) {
-            addMessage(data.sender, data.message, "left");
-            socket.emit("mark_as_read", { recipient: data.sender });
-        }
-    });
-
-    socket.on("message_status", data => {
-        updateMessageStatus(data.sender, data.status);
-    });
-}
-
-function selectUser(user) {
-    selectedUser = user;
-    document.getElementById("messages").innerHTML = "";
+  document.getElementById("message").addEventListener("input", () => {
+    if (!isTyping) {
+      isTyping = true;
+      socket.emit("typing", { username: username, room: room, isTyping: true });
+    }
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+      isTyping = false;
+      socket.emit("typing", {
+        username: username,
+        room: room,
+        isTyping: false,
+      });
+    }, 1000);
+  });
 }
 
 function sendMessage() {
-    const message = document.getElementById("message").value;
-    if (selectedUser && message.trim() !== "") {
-        socket.emit("send_message", { sender: jid, recipient: selectedUser, message });
-        addMessage("You", message, "right");
-        document.getElementById("message").value = "";
+  const message = document.getElementById("message").value;
+  if (message) {
+    socket.emit("send_message", {
+      username: username,
+      room: room,
+      message: message,
+    });
+    document.getElementById("message").value = "";
+  }
+}
+
+function sendFile() {
+  const fileInput = document.getElementById("file-input");
+  fileInput.click();
+  fileInput.onchange = function () {
+    const file = fileInput.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const fileData = e.target.result.split(",")[1];
+        socket.emit("send_file", {
+          username: username,
+          room: room,
+          filename: file.name,
+          file_data: fileData,
+        });
+      };
+      reader.readAsDataURL(file);
     }
+  };
 }
-
-function addMessage(sender, message, alignment) {
-    const messagesDiv = document.getElementById("messages");
-    const msgElement = document.createElement("div");
-    msgElement.className = alignment === "right" ? "right-message" : "left-message";
-    msgElement.innerHTML = `<strong>${sender}:</strong> ${message} <span class="message-status" id="status-${message}"></span>`;
-    messagesDiv.appendChild(msgElement);
-}
-
-function updateMessageStatus(sender, status) {
-    const messagesDiv = document.getElementById("messages");
-    const messageElements = messagesDiv.getElementsByClassName("right-message");
-    
-    for (let i = 0; i < messageElements.length; i++) {
-        const messageElement = messageElements[i];
-        if (messageElement.innerHTML.includes(sender)) {
-            const statusElement = messageElement.querySelector(".message-status");
-            if (status === "sent") {
-                statusElement.innerHTML = '✔';
-            } else if (status === "delivered") {
-                statusElement.innerHTML = '✔✔';
-            } else if (status === "read") {
-                statusElement.innerHTML = '<span style="color: blue;">✔✔</span>';
-            }
-        }
-    }
-}
-
-initializeLogin();
