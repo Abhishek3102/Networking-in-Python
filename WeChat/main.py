@@ -1,31 +1,17 @@
-from flask import Flask, render_template, request, redirect, url_for
-from flask_socketio import SocketIO, emit, join_room
-from slixmpp import ClientXMPP
-import asyncio
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory
+from flask_socketio import SocketIO, emit, join_room, leave_room
+import os
 
 app = Flask(__name__)
 app.secret_key = "secret_key"
-socketio = SocketIO(app)
+app.config['UPLOAD_FOLDER'] = 'uploads'
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-class ChatClient(ClientXMPP):
-    def __init__(self, jid, password):
-        super().__init__(jid, password)
-        self.add_event_handler("session_start", self.start)
-        self.add_event_handler("message", self.receive_message)
-        self.presences = {}
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
 
-    async def start(self, event):
-        self.send_presence()
-        await self.get_roster()
-
-    def receive_message(self, msg):
-        if msg['type'] in ('chat', 'normal'):
-            socketio.emit(
-                "receive_message", {"sender": msg["from"], "message": msg["body"]}, to=msg["to"]
-            )
-
-clients = {}
-online_users = {}
+active_users = {}
+rooms = {}
 
 @app.route('/')
 def index():
@@ -33,43 +19,80 @@ def index():
 
 @app.route('/login', methods=["POST"])
 def login():
-    jid = request.form["jid"]
-    password = request.form["password"]
-    if jid not in clients:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        client = ChatClient(jid, password)
-        client.connect()
-        client.loop.run_in_executor(None, client.process)
-        clients[jid] = client
-    online_users[jid] = True
-    return redirect(url_for("chat", jid=jid))
+    username = request.form.get("username")
+    if not username:
+        return "Username is required.", 400
+    if username in active_users:
+        return "Username already taken. Please choose another.", 400
+    return redirect(url_for("chat", username=username))
 
-@app.route('/chat/<jid>')
-def chat(jid):
-    users = list(clients.keys())
-    users.remove(jid)
-    return render_template("chat.html", jid=jid, users=users)
+@app.route('/chat/<username>')
+def chat(username):
+    return render_template("chat.html", username=username, users=list(active_users.keys()))
 
-@socketio.on("send_message")
-def handle_send_message(data):
-    sender = data["sender"]
-    recipient = data["recipient"]
-    message = data["message"]
-    if sender in clients:
-        clients[sender].send_chat_message(recipient, message)
-    emit("message_status", {"recipient": recipient, "status": "sent"}, to=sender)
-    emit("message_status", {"recipient": recipient, "status": "delivered"}, to=recipient)
-    emit("receive_message", {"sender": sender, "message": message}, to=recipient)
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
-@socketio.on("mark_as_read")
-def mark_as_read(data):
-    recipient = data["recipient"]
-    emit("message_status", {"recipient": recipient, "status": "read"}, to=recipient)
+@socketio.on("connect")
+def handle_connect():
+    print("Client connected:", request.sid)
 
 @socketio.on("join_room")
 def handle_join_room(data):
-    join_room(data["jid"])
+    username = data["username"]
+    room = data["room"]
+    active_users[username] = request.sid
+    rooms[username] = room
+    join_room(room)
+    emit("user_joined", {"username": username}, to=room)
+    emit("update_user_list", {"users": list(active_users.keys())}, to=room)
+
+@socketio.on("leave_room")
+def handle_leave_room(data):
+    username = data["username"]
+    room = data["room"]
+    if username in active_users:
+        leave_room(room)
+        emit("user_left", {"username": username}, to=room)
+        del rooms[username]
+        del active_users[username]
+        emit("update_user_list", {"users": list(active_users.keys())}, to=room)
+
+@socketio.on("send_message")
+def handle_send_message(data):
+    username = data["username"]
+    room = data["room"]
+    message = data["message"]
+    emit("receive_message", {"username": username, "message": message}, to=room)
+
+@socketio.on("send_file")
+def handle_send_file(data):
+    username = data["username"]
+    room = data["room"]
+    filename = data["filename"]
+    file_data = data["file_data"]
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    with open(file_path, 'wb') as f:
+        f.write(file_data.encode('utf-8'))
+    emit("receive_file", {"username": username, "filename": filename, "file_url": f"/uploads/{filename}"}, to=room)
+
+@socketio.on("typing")
+def handle_typing(data):
+    room = data["room"]
+    emit("typing", {"username": data["username"], "isTyping": data["isTyping"]}, to=room)
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    for username, sid in active_users.items():
+        if sid == request.sid:
+            room = rooms.get(username)
+            if room:
+                emit("user_left", {"username": username}, to=room)
+                del rooms[username]
+                del active_users[username]
+                emit("update_user_list", {"users": list(active_users.keys())}, to=room)
+            break
 
 if __name__ == "__main__":
-    socketio.run(app, debug=True)
+    socketio.run(app, debug=True, use_reloader=False)
