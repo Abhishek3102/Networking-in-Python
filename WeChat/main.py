@@ -48,17 +48,6 @@ def handle_join_room(data):
     emit("user_joined", {"username": username}, to=room)
     emit("update_user_list", {"users": list(active_users.keys())}, to=room)
 
-@socketio.on("leave_room")
-def handle_leave_room(data):
-    username = data["username"]
-    room = data["room"]
-    if username in active_users:
-        leave_room(room)
-        emit("user_left", {"username": username}, to=room)
-        del rooms[username]
-        del active_users[username]
-        emit("update_user_list", {"users": list(active_users.keys())}, to=room)
-
 @socketio.on("send_message")
 def handle_send_message(data):
     username = data["username"]
