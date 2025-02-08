@@ -62,10 +62,17 @@ function setupChat(username) {
       });
     }, 1000);
   });
+
+  document.getElementById("message").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendMessage();
+    }
+  });
 }
 
 function sendMessage() {
-  const message = document.getElementById("message").value;
+  const message = document.getElementById("message").value.trim();
   if (message) {
     socket.emit("send_message", {
       username: username,
@@ -84,12 +91,12 @@ function sendFile() {
     if (file) {
       const reader = new FileReader();
       reader.onload = function (e) {
-        const fileData = e.target.result.split(",")[1];
+        const base64Data = e.target.result.split(",")[1];
         socket.emit("send_file", {
           username: username,
           room: room,
           filename: file.name,
-          file_data: fileData,
+          file_data: base64Data,
         });
       };
       reader.readAsDataURL(file);
