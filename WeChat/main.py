@@ -1,6 +1,8 @@
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory
-from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_socketio import SocketIO, emit, join_room
 import os
+import base64
+import imghdr
 
 app = Flask(__name__)
 app.secret_key = "secret_key"
@@ -55,6 +57,19 @@ def handle_send_message(data):
     message = data["message"]
     emit("receive_message", {"username": username, "message": message}, to=room)
 
+# @socketio.on("send_file")
+# def handle_send_file(data):
+#     username = data["username"]
+#     room = data["room"]
+#     filename = data["filename"]
+#     file_data = data["file_data"]
+#     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    
+#     with open(file_path, 'wb') as f:
+#         f.write(base64.b64decode(file_data))
+#     emit("receive_file", {"username": username, "filename": filename, "file_url": f"/uploads/{filename}"}, to=room)
+
+
 @socketio.on("send_file")
 def handle_send_file(data):
     username = data["username"]
@@ -62,9 +77,21 @@ def handle_send_file(data):
     filename = data["filename"]
     file_data = data["file_data"]
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    with open(file_path, 'wb') as f:
-        f.write(file_data.encode('utf-8'))
-    emit("receive_file", {"username": username, "filename": filename, "file_url": f"/uploads/{filename}"}, to=room)
+
+    try:
+        decoded_data = base64.b64decode(file_data)
+        file_type = imghdr.what(None, decoded_data)  
+        if not file_type:
+            raise ValueError("Not a valid image format")
+
+        with open(file_path, 'wb') as f:
+            f.write(decoded_data)
+        emit("receive_file", {"username": username, "filename": filename, "file_url": f"/uploads/{filename}"}, to=room)
+    
+    except Exception as e:
+        print(f"Error saving file: {e}")
+        emit("error", {"message": "File upload failed! Please ensure the file is a valid image."}, to=room)
+
 
 @socketio.on("typing")
 def handle_typing(data):
