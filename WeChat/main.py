@@ -3,11 +3,13 @@ from flask_socketio import SocketIO, emit, join_room
 import os
 import base64
 import imghdr
+from flask_cors import CORS
 
 app = Flask(__name__)
 app.secret_key = "secret_key"
 app.config['UPLOAD_FOLDER'] = 'uploads'
 socketio = SocketIO(app, cors_allowed_origins="*")
+CORS(app)
 
 if not os.path.exists(app.config['UPLOAD_FOLDER']):
     os.makedirs(app.config['UPLOAD_FOLDER'])
@@ -111,4 +113,4 @@ def handle_disconnect():
             break
 
 if __name__ == "__main__":
-    socketio.run(app, debug=True, use_reloader=False)
+    socketio.run(app, debug=True, use_reloader=False, host='0.0.0.0', port=5000)
